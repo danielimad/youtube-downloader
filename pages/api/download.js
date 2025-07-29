@@ -1,4 +1,4 @@
-import ytdl from '@distube/ytdl-core';
+import youtubedl from 'youtube-dl-exec'
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -6,31 +6,68 @@ export default async function handler(req, res) {
     return res.status(405).end('Method Not Allowed');
   }
 
-  const { v } = req.query;
-  if (!v) {
-    return res.status(400).end('Missing video ID');
+  const { url, format = 'best' } = req.query;
+  
+  if (!url) {
+    return res.status(400).json({ error: 'Missing URL parameter' });
   }
-  const url = 'https://www.youtube.com/watch?v=' + v;
-  // Disable socket timeouts to allow long downloads
-  req.socket.setTimeout(0);
-  res.socket.setTimeout(0);
+
+  // Validate YouTube URL
+  const youtubeRegex = /(?:youtube\.com|youtu\.be)/;
+  if (!youtubeRegex.test(url)) {
+    return res.status(400).json({ error: 'Invalid YouTube URL' });
+  }
+
   try {
-    const info = await ytdl.getInfo(url);
-    // Sanitize title to create a safe filename
-    const title = info.videoDetails.title
-      .replace(/[^A-Za-z0-9 ._-]/g, '')
-      .slice(0, 100);
-    res.setHeader('Content-Disposition', 'attachment; filename="' + title + '.mp4"');
-    res.setHeader('Content-Type', 'video/mp4');
-    const stream = ytdl(url, {
-      filter: 'audioandvideo',
-      quality: 'highest',
-      highWaterMark: 1 << 25,
+    // Set headers to prevent timeout
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    
+    // Get video info first
+    const info = await youtubedl(url, {
+      dumpSingleJson: true,
+      noWarnings: true,
+      noCallHome: true,
+      addHeader: [
+        'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      ]
     });
-    stream.pipe(res);
-  } catch (err) {
-    console.error(err);
-    const message = err && err.message ? err.message : 'Failed to download video';
-    res.status(500).end(message);
+
+    const title = info.title?.replace(/[^A-Za-z0-9 ._-]/g, '').slice(0, 100) || 'video';
+    const ext = format.includes('audio') ? 'mp3' : 'mp4';
+    
+    res.setHeader('Content-Disposition', `attachment; filename="${title}.${ext}"`);
+
+    // Stream the download
+    const stream = youtubedl.exec(url, {
+      format: format,
+      output: '-',
+      addHeader: [
+        'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      ]
+    });
+
+    stream.stdout.pipe(res);
+    
+    stream.on('error', (error) => {
+      console.error('Download error:', error);
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Download failed' });
+      }
+    });
+
+  } catch (error) {
+    console.error('Error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Failed to process video',
+        message: error.message 
+      });
+    }
   }
+}
+
+// Add Vercel configuration
+export const config = {
+  maxDuration: 30, // 30 seconds max
 }
