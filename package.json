@@ -11,6 +11,6 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "youtube-dl-exec": "^2.4.13"
+    "play-dl": "^1.9.7"
   }
 }
