@@ -1,4 +1,45 @@
-import playdl from 'play-dl';
+import ytdl from '@distube/ytdl-core';
+import { extractVideoId, sanitizeFilename, createUserAgent } from '../../lib/youtube-utils.js';
+
+async function downloadWithYtdl(videoId, quality, res) {
+  const url = `https://www.youtube.com/watch?v=${videoId}`;
+  
+  const options = {
+    quality: quality === 'high' ? 'highestvideo' : 'lowestvideo',
+    filter: format => format.container === 'mp4' && format.hasVideo && format.hasAudio,
+    requestOptions: {
+      headers: {
+        'User-Agent': createUserAgent(),
+        'Accept-Language': 'en-US,en;q=0.9',
+      }
+    },
+    highWaterMark: 1 << 25, // 32MB buffer
+  };
+
+  // Get video info for filename
+  const info = await ytdl.getBasicInfo(url, options);
+  const title = sanitizeFilename(info.videoDetails.title);
+  
+  // Set headers
+  res.setHeader('Content-Disposition', `attachment; filename="${title}.mp4"`);
+  res.setHeader('Content-Type', 'video/mp4');
+  res.setHeader('Accept-Ranges', 'bytes');
+
+  // Create and pipe stream
+  const stream = ytdl(url, options);
+  
+  stream.on('error', (error) => {
+    throw error;
+  });
+
+  stream.pipe(res);
+  
+  return new Promise((resolve, reject) => {
+    stream.on('end', resolve);
+    stream.on('error', reject);
+    res.on('close', resolve);
+  });
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -12,88 +53,43 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Missing URL parameter' });
   }
 
-  // Set headers to prevent timeout
-  req.socket.setTimeout(0);
-  res.socket.setTimeout(0);
+  const videoId = extractVideoId(url);
+  if (!videoId) {
+    return res.status(400).json({ error: 'Invalid YouTube URL' });
+  }
+
+  // Set timeout
+  req.socket.setTimeout(60000);
+  res.socket.setTimeout(60000);
 
   try {
-    // Validate URL
-    const isValidUrl = playdl.yt_validate(url) === 'video';
-    if (!isValidUrl) {
-      return res.status(400).json({ error: 'Invalid YouTube URL' });
-    }
-
-    const info = await playdl.video_info(url);
-    
-    if (!info) {
-      return res.status(404).json({ error: 'Video not found' });
-    }
-
-    // Get the best format based on quality preference
-    let selectedFormat;
-    const formats = info.format.filter(f => f.url && f.mimeType?.includes('video'));
-    
-    if (quality === 'high') {
-      selectedFormat = formats.find(f => f.quality === '720p') || 
-                     formats.find(f => f.quality === '480p') || 
-                     formats[0];
-    } else {
-      selectedFormat = formats.find(f => f.quality === '360p') || 
-                     formats.find(f => f.quality === '240p') || 
-                     formats[formats.length - 1];
-    }
-
-    if (!selectedFormat) {
-      return res.status(404).json({ error: 'No suitable format found' });
-    }
-
-    // Sanitize filename
-    const title = info.video_details.title
-      .replace(/[^A-Za-z0-9 ._-]/g, '')
-      .slice(0, 100);
-
-    // Set response headers
-    res.setHeader('Content-Disposition', `attachment; filename="${title}.mp4"`);
-    res.setHeader('Content-Type', 'video/mp4');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
-    // Stream the video
-    const stream = await playdl.stream(url, {
-      quality: selectedFormat.quality
-    });
-
-    stream.stream.pipe(res);
-
-    stream.stream.on('error', (error) => {
-      console.error('Stream error:', error);
-      if (!res.headersSent) {
-        res.status(500).json({ error: 'Streaming failed' });
-      }
-    });
-
+    await downloadWithYtdl(videoId, quality, res);
   } catch (error) {
     console.error('Download error:', error);
     
-    let errorMessage = 'Download failed';
-    if (error.message?.includes('private')) {
-      errorMessage = 'Video is private or age-restricted';
-    } else if (error.message?.includes('unavailable')) {
-      errorMessage = 'Video is unavailable';
-    } else if (error.message?.includes('timeout')) {
-      errorMessage = 'Request timed out';
-    }
-
     if (!res.headersSent) {
+      let errorMessage = 'Download failed';
+      
+      if (error.message?.includes('Sign in to confirm')) {
+        errorMessage = 'Video requires age verification';
+      } else if (error.message?.includes('private')) {
+        errorMessage = 'Video is private';
+      } else if (error.message?.includes('unavailable')) {
+        errorMessage = 'Video is unavailable';
+      } else if (error.message?.includes('formats')) {
+        errorMessage = 'No suitable video format found';
+      }
+
       res.status(500).json({ 
         error: errorMessage,
-        details: error.message 
+        details: error.message,
+        videoId: videoId
       });
     }
   }
 }
 
-// Add Vercel configuration
 export const config = {
-  maxDuration: 30,
+  maxDuration: 60, // Increase timeout
   regions: ['iad1']
 }
