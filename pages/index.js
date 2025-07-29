@@ -329,7 +329,7 @@ export default function Home() {
           <strong>⚠️ Important Notes:</strong>
           <ul style={{ marginTop: '0.5rem', paddingLeft: '1.2rem', marginBottom: 0 }}>
             <li>Private videos and age-restricted content cannot be downloaded</li>
-            <li>Very long videos (>1 hour) may timeout due to server limits</li>
+            <li>Very long videos (&gt;1 hour) may timeout due to server limits</li>
             <li>Download speed depends on video size and server load</li>
             <li>This tool uses multiple fallback methods for better reliability</li>
           </ul>
