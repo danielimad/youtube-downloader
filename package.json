@@ -11,6 +11,7 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "ytdl-core": "latest"
+    "ytdl-core”: “github:fent/node-ytdl-core#master"
+  
   }
 }
