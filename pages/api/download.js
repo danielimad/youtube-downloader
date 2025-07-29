@@ -1,54 +1,51 @@
-import ytdl from 'ytdl-core';
+import { exec } from 'yt-dlp-exec';
 
-const REQUEST_HEADERS = {
-  // a common desktop UA – YouTube expects a “browser”
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
-    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
-    'Chrome/115.0.0.0 Safari/537.36',
-  Accept: '*/*',
-};
-
-export default async function handler(req, res) {
+export default function handler(req, res) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
-    return res.status(405).send('Method Not Allowed');
+    return res.status(405).end('Method Not Allowed');
   }
 
   const v = req.query.v;
-  if (!v || !ytdl.validateID(v)) {
-    return res.status(400).send('Invalid or missing video ID');
+  if (!v) {
+    return res.status(400).end('Missing video ID');
   }
 
   const url = `https://www.youtube.com/watch?v=${v}`;
   req.socket.setTimeout(0);
   res.socket.setTimeout(0);
 
-  try {
-    // fetch metadata with headers
-    const info = await ytdl.getInfo(url, {
-      requestOptions: { headers: REQUEST_HEADERS },
-    });
+  // build a safe filename via a HEAD request
+  const titleProc = exec(url, {
+    dumpSingleJson: true,
+    skipDownload: true,
+    noWarnings: true,
+  });
 
-    const safeTitle = info.videoDetails.title
-      .replace(/[^a-z0-9_\-]/gi, '_')
-      .substring(0, 100);
+  let filename;
+  titleProc.stdout.on('data', chunk => {
+    try {
+      const info = JSON.parse(chunk.toString());
+      const safe = info.title.replace(/[^a-z0-9_\-]/gi, '_').slice(0,100);
+      filename = safe + '.mp4';
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Type', 'video/mp4');
+    } catch {}
+  });
 
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${safeTitle}.mp4"`
-    );
-    res.setHeader('Content-Type', 'video/mp4');
+  titleProc.on('close', () => {
+    // now stream with bestvideo+audio merged into MP4
+    const dl = exec(url, {
+      format: 'bestaudio+bestvideo[ext=mp4]',
+      output: '-',     // pipe to stdout
+      limitRate: '0',  // no throttling
+      noCheckCertificate: true,
+      noWarnings: true,
+    }, { stdio: ['ignore','pipe','pipe'] });
 
-    // stream with the same headers
-    ytdl(url, {
-      filter: f => f.container === 'mp4' && f.hasAudio && f.hasVideo,
-      quality: 'highest',
-      requestOptions: { headers: REQUEST_HEADERS },
-      highWaterMark: 1 << 25, // 32 MB
-    }).pipe(res);
-  } catch (err) {
-    console.error('Download API error:', err);
-    res.status(500).send('Download failed');
-  }
+    dl.stdout.pipe(res);
+    dl.stderr.on('data', d => console.error('yt-dlp error:', d.toString()));
+  });
+
+  titleProc.stderr.on('data', d => console.error('yt-dlp-info error:', d.toString()));
 }
