@@ -1,15 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 export default function Home() {
   const [url, setUrl] = useState('');
   const [videoInfo, setVideoInfo] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [format, setFormat] = useState('best');
+  const [error, setError] = useState('');
+
+  const extractVideoId = (url) => {
+    const regex = /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/;
+    const match = url.match(regex);
+    return match ? match[1] : null;
+  };
 
   const getVideoInfo = async () => {
-    if (!url) return;
-    
+    if (!url.trim()) {
+      setError('Please enter a YouTube URL');
+      return;
+    }
+
     setLoading(true);
+    setError('');
+    setVideoInfo(null);
+
     try {
       const response = await fetch(`/api/info?url=${encodeURIComponent(url)}`);
       const data = await response.json();
@@ -17,118 +29,181 @@ export default function Home() {
       if (response.ok) {
         setVideoInfo(data);
       } else {
-        alert(data.error || 'Failed to get video info');
+        setError(data.error || 'Failed to get video info');
       }
-    } catch (error) {
-      alert('Network error');
+    } catch (err) {
+      setError('Network error. Please try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
+  };
+
+  const handleDownload = (quality) => {
+    const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&quality=${quality}`;
+    window.open(downloadUrl, '_blank');
   };
 
   return (
     <div style={{ 
-      maxWidth: 800, 
+      maxWidth: '800px', 
       margin: '2rem auto', 
       padding: '0 1rem',
       fontFamily: 'system-ui, -apple-system, sans-serif' 
     }}>
-      <h1>YouTube Downloader</h1>
+      <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+        <h1 style={{ color: '#333', marginBottom: '0.5rem' }}>YouTube Downloader</h1>
+        <p style={{ color: '#666' }}>Download YouTube videos in MP4 format</p>
+      </div>
       
-      <div style={{ marginBottom: '1rem' }}>
+      <div style={{ 
+        backgroundColor: '#f8f9fa', 
+        padding: '1.5rem', 
+        borderRadius: '8px',
+        marginBottom: '1rem'
+      }}>
         <input
           type="text"
-          placeholder="Enter YouTube URL"
+          placeholder="Paste YouTube URL here (e.g., https://www.youtube.com/watch?v=...)"
           value={url}
           onChange={e => setUrl(e.target.value)}
           style={{
             width: '100%',
             padding: '0.75rem',
             fontSize: '1rem',
-            border: '1px solid #ddd',
-            borderRadius: '4px',
-            marginBottom: '0.5rem'
+            border: '2px solid #ddd',
+            borderRadius: '6px',
+            marginBottom: '1rem',
+            boxSizing: 'border-box'
           }}
         />
         
         <button
           onClick={getVideoInfo}
-          disabled={loading || !url}
+          disabled={loading || !url.trim()}
           style={{
+            width: '100%',
             padding: '0.75rem 1.5rem',
-            backgroundColor: '#0070f3',
+            backgroundColor: loading ? '#ccc' : '#007bff',
             color: 'white',
             border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            marginRight: '0.5rem'
+            borderRadius: '6px',
+            fontSize: '1rem',
+            cursor: loading ? 'not-allowed' : 'pointer',
+            transition: 'background-color 0.2s'
           }}
         >
-          {loading ? 'Loading...' : 'Get Info'}
+          {loading ? 'Getting Info...' : 'Get Video Info'}
         </button>
       </div>
+
+      {error && (
+        <div style={{ 
+          backgroundColor: '#f8d7da', 
+          color: '#721c24',
+          padding: '1rem', 
+          borderRadius: '6px',
+          marginBottom: '1rem',
+          border: '1px solid #f5c6cb'
+        }}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
 
       {videoInfo && (
         <div style={{ 
           border: '1px solid #ddd', 
-          borderRadius: '4px', 
-          padding: '1rem',
-          marginBottom: '1rem'
+          borderRadius: '8px', 
+          padding: '1.5rem',
+          marginBottom: '1rem',
+          backgroundColor: 'white'
         }}>
-          <h3>{videoInfo.title}</h3>
-          {videoInfo.thumbnail && (
-            <img 
-              src={videoInfo.thumbnail} 
-              alt="Thumbnail" 
-              style={{ maxWidth: '200px', height: 'auto' }}
-            />
-          )}
-          
-          <div style={{ margin: '1rem 0' }}>
-            <label>Format: </label>
-            <select 
-              value={format}
-              onChange={e => setFormat(e.target.value)}
-              style={{ padding: '0.25rem', marginLeft: '0.5rem' }}
-            >
-              <option value="best">Best Quality</option>
-              <option value="worst">Fastest Download</option>
-              <option value="bestaudio">Audio Only</option>
-              <option value="mp4">MP4 Video</option>
-            </select>
+          <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
+            {videoInfo.thumbnail && (
+              <img 
+                src={videoInfo.thumbnail} 
+                alt="Video thumbnail" 
+                style={{ 
+                  width: '200px', 
+                  height: 'auto', 
+                  borderRadius: '6px',
+                  flexShrink: 0
+                }}
+              />
+            )}
+            <div style={{ flex: 1 }}>
+              <h3 style={{ margin: '0 0 0.5rem 0', color: '#333' }}>
+                {videoInfo.title}
+              </h3>
+              <p style={{ margin: '0.25rem 0', color: '#666' }}>
+                <strong>Channel:</strong> {videoInfo.channel}
+              </p>
+              <p style={{ margin: '0.25rem 0', color: '#666' }}>
+                <strong>Duration:</strong> {Math.floor(videoInfo.duration / 60)}:{(videoInfo.duration % 60).toString().padStart(2, '0')}
+              </p>
+              <p style={{ margin: '0.25rem 0', color: '#666' }}>
+                <strong>Views:</strong> {videoInfo.views?.toLocaleString()}
+              </p>
+            </div>
           </div>
 
-          <a
-            href={`/api/download?url=${encodeURIComponent(url)}&format=${format}`}
-            style={{
-              display: 'inline-block',
-              padding: '0.75rem 1.5rem',
-              backgroundColor: '#28a745',
-              color: 'white',
-              textDecoration: 'none',
-              borderRadius: '4px'
-            }}
-          >
-            Download
-          </a>
+          <div style={{ marginTop: '1rem' }}>
+            <h4 style={{ marginBottom: '0.5rem' }}>Download Options:</h4>
+            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => handleDownload('high')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem'
+                }}
+              >
+                High Quality (720p/480p)
+              </button>
+              <button
+                onClick={() => handleDownload('low')}
+                style={{
+                  padding: '0.5rem 1rem',
+                  backgroundColor: '#17a2b8',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '0.9rem'
+                }}
+              >
+                Lower Quality (360p/240p)
+              </button>
+            </div>
+          </div>
+
+          {videoInfo.formats && videoInfo.formats.length > 0 && (
+            <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: '#666' }}>
+              <strong>Available formats:</strong> {videoInfo.formats.length} options found
+            </div>
+          )}
         </div>
       )}
 
       <div style={{ 
-        marginTop: '2rem', 
+        backgroundColor: '#e9ecef', 
         padding: '1rem', 
-        backgroundColor: '#f5f5f5',
-        borderRadius: '4px',
-        fontSize: '0.9rem'
+        borderRadius: '6px',
+        fontSize: '0.9rem',
+        color: '#495057'
       }}>
-        <h4>Instructions:</h4>
-        <ol>
-          <li>Paste a YouTube URL</li>
-          <li>Click "Get Info" to preview the video</li>
-          <li>Select your preferred format</li>
-          <li>Click "Download" to start downloading</li>
+        <h4 style={{ marginTop: 0 }}>How to use:</h4>
+        <ol style={{ paddingLeft: '1.2rem' }}>
+          <li>Copy and paste a YouTube video URL</li>
+          <li>Click "Get Video Info" to preview the video</li>
+          <li>Choose your preferred quality and click download</li>
         </ol>
-        
-        <p><strong>Note:</strong> Large files may take time to process. The download will start automatically once ready.</p>
+        <p style={{ marginBottom: 0 }}>
+          <strong>Note:</strong> Private videos, age-restricted content, and very long videos may not be downloadable due to platform restrictions.
+        </p>
       </div>
     </div>
   );
