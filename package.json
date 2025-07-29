@@ -11,6 +11,7 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "play-dl": "^1.9.7"
+    "@distube/ytdl-core": "latest",
+    "node-fetch": "^3.3.2"
   }
 }
