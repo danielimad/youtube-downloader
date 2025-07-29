@@ -1,7 +1,15 @@
 import ytdl from 'ytdl-core';
 
+const REQUEST_HEADERS = {
+  // a common desktop UA – YouTube expects a “browser”
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+    'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+    'Chrome/115.0.0.0 Safari/537.36',
+  Accept: '*/*',
+};
+
 export default async function handler(req, res) {
-  // only allow GET
   if (req.method !== 'GET') {
     res.setHeader('Allow', ['GET']);
     return res.status(405).send('Method Not Allowed');
@@ -13,13 +21,15 @@ export default async function handler(req, res) {
   }
 
   const url = `https://www.youtube.com/watch?v=${v}`;
-  // disable serverless timeouts
   req.socket.setTimeout(0);
   res.socket.setTimeout(0);
 
   try {
-    // fetch info to build a safe filename
-    const info = await ytdl.getInfo(url);
+    // fetch metadata with headers
+    const info = await ytdl.getInfo(url, {
+      requestOptions: { headers: REQUEST_HEADERS },
+    });
+
     const safeTitle = info.videoDetails.title
       .replace(/[^a-z0-9_\-]/gi, '_')
       .substring(0, 100);
@@ -30,13 +40,13 @@ export default async function handler(req, res) {
     );
     res.setHeader('Content-Type', 'video/mp4');
 
-    // stream highest-quality MP4
+    // stream with the same headers
     ytdl(url, {
       filter: f => f.container === 'mp4' && f.hasAudio && f.hasVideo,
       quality: 'highest',
-      highWaterMark: 1 << 25,  // 32 MB buffer
+      requestOptions: { headers: REQUEST_HEADERS },
+      highWaterMark: 1 << 25, // 32 MB
     }).pipe(res);
-
   } catch (err) {
     console.error('Download API error:', err);
     res.status(500).send('Download failed');
