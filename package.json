@@ -11,6 +11,6 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "@distube/ytdl-core": "latest"
+    "youtube-dl-exec": "^2.4.13"
   }
 }
